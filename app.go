@@ -77,7 +77,6 @@ func (app *App) startup(ctx context.Context) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
 
 	// 加载服务器配置
 	if err := app.loadServerConfigs(db); err != nil {
