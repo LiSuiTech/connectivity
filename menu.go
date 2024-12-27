@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/wailsapp/wails/v2/pkg/menu"
+	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -20,7 +21,7 @@ func createMenu(app *App) *menu.Menu {
 	settingsMenu.AddSeparator()
 
 	// 添加退出选项
-	settingsMenu.AddText("退出", nil, func(cd *menu.CallbackData) {
+	settingsMenu.AddText("退出", keys.CmdOrCtrl("Q"), func(cd *menu.CallbackData) {
 		runtime.Quit(app.ctx)
 	})
 	// // TCP 菜单组

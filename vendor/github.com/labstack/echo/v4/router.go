@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: © 2015 LabStack LLC and Echo contributors
+
 package echo
 
 import (
@@ -6,56 +9,57 @@ import (
 	"net/http"
 )
 
-type (
-	// Router is the registry of all registered routes for an `Echo` instance for
-	// request matching and URL path parameter parsing.
-	Router struct {
-		tree   *node
-		routes map[string]*Route
-		echo   *Echo
-	}
-	node struct {
-		kind           kind
-		label          byte
-		prefix         string
-		parent         *node
-		staticChildren children
-		originalPath   string
-		methods        *routeMethods
-		paramChild     *node
-		anyChild       *node
-		paramsCount    int
-		// isLeaf indicates that node does not have child routes
-		isLeaf bool
-		// isHandler indicates that node has at least one handler registered to it
-		isHandler bool
+// Router is the registry of all registered routes for an `Echo` instance for
+// request matching and URL path parameter parsing.
+type Router struct {
+	tree   *node
+	routes map[string]*Route
+	echo   *Echo
+}
 
-		// notFoundHandler is handler registered with RouteNotFound method and is executed for 404 cases
-		notFoundHandler *routeMethod
-	}
-	kind        uint8
-	children    []*node
-	routeMethod struct {
-		ppath   string
-		pnames  []string
-		handler HandlerFunc
-	}
-	routeMethods struct {
-		connect     *routeMethod
-		delete      *routeMethod
-		get         *routeMethod
-		head        *routeMethod
-		options     *routeMethod
-		patch       *routeMethod
-		post        *routeMethod
-		propfind    *routeMethod
-		put         *routeMethod
-		trace       *routeMethod
-		report      *routeMethod
-		anyOther    map[string]*routeMethod
-		allowHeader string
-	}
-)
+type node struct {
+	methods    *routeMethods
+	parent     *node
+	paramChild *node
+	anyChild   *node
+	// notFoundHandler is handler registered with RouteNotFound method and is executed for 404 cases
+	notFoundHandler *routeMethod
+	prefix          string
+	originalPath    string
+	staticChildren  children
+	paramsCount     int
+	label           byte
+	kind            kind
+	// isLeaf indicates that node does not have child routes
+	isLeaf bool
+	// isHandler indicates that node has at least one handler registered to it
+	isHandler bool
+}
+
+type kind uint8
+type children []*node
+
+type routeMethod struct {
+	handler HandlerFunc
+	ppath   string
+	pnames  []string
+}
+
+type routeMethods struct {
+	connect     *routeMethod
+	delete      *routeMethod
+	get         *routeMethod
+	head        *routeMethod
+	options     *routeMethod
+	patch       *routeMethod
+	post        *routeMethod
+	propfind    *routeMethod
+	put         *routeMethod
+	trace       *routeMethod
+	report      *routeMethod
+	anyOther    map[string]*routeMethod
+	allowHeader string
+}
 
 const (
 	staticKind kind = iota
@@ -151,7 +155,7 @@ func (r *Router) Routes() []*Route {
 	return routes
 }
 
-// Reverse generates an URL from route name and provided parameters.
+// Reverse generates a URL from route name and provided parameters.
 func (r *Router) Reverse(name string, params ...interface{}) string {
 	uri := new(bytes.Buffer)
 	ln := len(params)
@@ -159,7 +163,12 @@ func (r *Router) Reverse(name string, params ...interface{}) string {
 	for _, route := range r.routes {
 		if route.Name == name {
 			for i, l := 0, len(route.Path); i < l; i++ {
-				if (route.Path[i] == ':' || route.Path[i] == '*') && n < ln {
+				hasBackslash := route.Path[i] == '\\'
+				if hasBackslash && i+1 < l && route.Path[i+1] == ':' {
+					i++ // backslash before colon escapes that colon. in that case skip backslash
+				}
+				if n < ln && (route.Path[i] == '*' || (!hasBackslash && route.Path[i] == ':')) {
+					// in case of `*` wildcard or `:` (unescaped colon) param we replace everything till next slash or end of path
 					for ; i < l && route.Path[i] != '/'; i++ {
 					}
 					uri.WriteString(fmt.Sprintf("%v", params[n]))
@@ -175,8 +184,18 @@ func (r *Router) Reverse(name string, params ...interface{}) string {
 	return uri.String()
 }
 
+func normalizePathSlash(path string) string {
+	if path == "" {
+		path = "/"
+	} else if path[0] != '/' {
+		path = "/" + path
+	}
+	return path
+}
+
 func (r *Router) add(method, path, name string, h HandlerFunc) *Route {
-	r.Add(method, path, h)
+	path = normalizePathSlash(path)
+	r.insert(method, path, h)
 
 	route := &Route{
 		Method: method,
@@ -189,13 +208,11 @@ func (r *Router) add(method, path, name string, h HandlerFunc) *Route {
 
 // Add registers a new route for method and path with matching handler.
 func (r *Router) Add(method, path string, h HandlerFunc) {
-	// Validate path
-	if path == "" {
-		path = "/"
-	}
-	if path[0] != '/' {
-		path = "/" + path
-	}
+	r.insert(method, normalizePathSlash(path), h)
+}
+
+func (r *Router) insert(method, path string, h HandlerFunc) {
+	path = normalizePathSlash(path)
 	pnames := []string{} // Param names
 	ppath := path        // Pristine path
 
@@ -214,7 +231,7 @@ func (r *Router) Add(method, path string, h HandlerFunc) {
 			}
 			j := i + 1
 
-			r.insert(method, path[:i], staticKind, routeMethod{})
+			r.insertNode(method, path[:i], staticKind, routeMethod{})
 			for ; i < lcpIndex && path[i] != '/'; i++ {
 			}
 
@@ -224,21 +241,21 @@ func (r *Router) Add(method, path string, h HandlerFunc) {
 
 			if i == lcpIndex {
 				// path node is last fragment of route path. ie. `/users/:id`
-				r.insert(method, path[:i], paramKind, routeMethod{ppath, pnames, h})
+				r.insertNode(method, path[:i], paramKind, routeMethod{ppath: ppath, pnames: pnames, handler: h})
 			} else {
-				r.insert(method, path[:i], paramKind, routeMethod{})
+				r.insertNode(method, path[:i], paramKind, routeMethod{})
 			}
 		} else if path[i] == '*' {
-			r.insert(method, path[:i], staticKind, routeMethod{})
+			r.insertNode(method, path[:i], staticKind, routeMethod{})
 			pnames = append(pnames, "*")
-			r.insert(method, path[:i+1], anyKind, routeMethod{ppath, pnames, h})
+			r.insertNode(method, path[:i+1], anyKind, routeMethod{ppath: ppath, pnames: pnames, handler: h})
 		}
 	}
 
-	r.insert(method, path, staticKind, routeMethod{ppath, pnames, h})
+	r.insertNode(method, path, staticKind, routeMethod{ppath: ppath, pnames: pnames, handler: h})
 }
 
-func (r *Router) insert(method, path string, t kind, rm routeMethod) {
+func (r *Router) insertNode(method, path string, t kind, rm routeMethod) {
 	// Adjust max param
 	paramLen := len(rm.pnames)
 	if *r.echo.maxParam < paramLen {

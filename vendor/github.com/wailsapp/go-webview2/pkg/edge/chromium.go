@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -22,7 +23,26 @@ import (
 type Rect = w32.Rect
 
 func globalErrorHandler(err error) {
-	println("Error detected in Webview2:\n", err.Error())
+	if err == nil {
+		return
+	}
+
+	fmt.Printf("[WebView2 Error] %v\n", err)
+
+	stackBuf := make([]uintptr, 64)
+	stackSize := runtime.Callers(2, stackBuf)
+	frames := runtime.CallersFrames(stackBuf[:stackSize])
+
+	fmt.Println("\nStack trace:")
+	stackIndex := 1
+	for {
+		frame, more := frames.Next()
+		if !more {
+			break
+		}
+		log.Printf("%d: %s\n\t%s:%d\n", stackIndex, frame.Function, frame.File, frame.Line)
+		stackIndex++
+	}
 }
 
 type Chromium struct {
@@ -281,9 +301,18 @@ func (e *Chromium) Release() uintptr {
 }
 
 func (e *Chromium) EnvironmentCompleted(res uintptr, env *ICoreWebView2Environment) uintptr {
-	if int32(res) < 0 {
-		e.errorCallback(fmt.Errorf("error creating environmentwith %08x: %s", res, syscall.Errno(res)))
+	if env == nil {
+		err := syscall.Errno(res)
+		log.Printf("[WebView2] Environment creation failed with error code %v: %v\n", res, err)
+		if e.globalErrorCallback != nil {
+			e.globalErrorCallback(fmt.Errorf("failed to create WebView2 environment: %w", err))
+		}
+		return res
 	}
+
+	log.Printf("[WebView2] Environment created successfully\n")
+	e.environment = env
+
 	_, _, err := env.vtbl.AddRef.Call(uintptr(unsafe.Pointer(env)))
 	if err != nil && !errors.Is(err, windows.ERROR_SUCCESS) {
 		e.errorCallback(err)
@@ -403,7 +432,7 @@ func (e *Chromium) MessageReceived(sender *ICoreWebView2, args *ICoreWebView2Web
 
 	message := w32.Utf16PtrToString(_message)
 
-	if hasCapability(e.webview2RuntimeVersion, GetAdditionalObjects) {
+	if HasCapability(e.webview2RuntimeVersion, GetAdditionalObjects) {
 		obj, err := args.GetAdditionalObjects()
 		if err != nil {
 			e.errorCallback(err)
@@ -601,11 +630,11 @@ func (e *Chromium) OpenDevToolsWindow() {
 }
 
 func (e *Chromium) HasCapability(c Capability) bool {
-	return hasCapability(e.webview2RuntimeVersion, c)
+	return HasCapability(e.webview2RuntimeVersion, c)
 }
 
 func (e *Chromium) GetIsSwipeNavigationEnabled() (bool, error) {
-	if !hasCapability(e.webview2RuntimeVersion, SwipeNavigation) {
+	if !HasCapability(e.webview2RuntimeVersion, SwipeNavigation) {
 		return false, UnsupportedCapabilityError
 	}
 	webview2Settings, err := e.webview.GetSettings()
@@ -630,6 +659,9 @@ func (e *Chromium) GetIsSwipeNavigationEnabled() (bool, error) {
 // It will take effect immediately after setting.
 // The default value is `FALSE`.
 func (e *Chromium) PutIsGeneralAutofillEnabled(value bool) error {
+	if !HasCapability(e.webview2RuntimeVersion, GeneralAutofillEnabled) {
+		return UnsupportedCapabilityError
+	}
 	webview2Settings, err := e.webview.GetSettings()
 	if err != nil {
 		return err
@@ -642,6 +674,9 @@ func (e *Chromium) PutIsGeneralAutofillEnabled(value bool) error {
 // identifying information entered into forms automatically.
 // The default value is `FALSE`.
 func (e *Chromium) PutIsPasswordAutosaveEnabled(value bool) error {
+	if !HasCapability(e.webview2RuntimeVersion, PasswordAutosaveEnabled) {
+		return UnsupportedCapabilityError
+	}
 	webview2Settings, err := e.webview.GetSettings()
 	if err != nil {
 		return err
@@ -651,7 +686,7 @@ func (e *Chromium) PutIsPasswordAutosaveEnabled(value bool) error {
 }
 
 func (e *Chromium) PutIsSwipeNavigationEnabled(enabled bool) error {
-	if !hasCapability(e.webview2RuntimeVersion, SwipeNavigation) {
+	if !HasCapability(e.webview2RuntimeVersion, SwipeNavigation) {
 		return UnsupportedCapabilityError
 	}
 	webview2Settings, err := e.webview.GetSettings()
@@ -667,7 +702,7 @@ func (e *Chromium) PutIsSwipeNavigationEnabled(enabled bool) error {
 }
 
 func (e *Chromium) AllowExternalDrag(allow bool) error {
-	if !hasCapability(e.webview2RuntimeVersion, AllowExternalDrop) {
+	if !HasCapability(e.webview2RuntimeVersion, AllowExternalDrop) {
 		return UnsupportedCapabilityError
 	}
 	controller := e.GetController()
@@ -680,7 +715,7 @@ func (e *Chromium) AllowExternalDrag(allow bool) error {
 }
 
 func (e *Chromium) GetAllowExternalDrag() (bool, error) {
-	if !hasCapability(e.webview2RuntimeVersion, AllowExternalDrop) {
+	if !HasCapability(e.webview2RuntimeVersion, AllowExternalDrop) {
 		return false, UnsupportedCapabilityError
 	}
 	controller := e.GetController()
@@ -690,4 +725,31 @@ func (e *Chromium) GetAllowExternalDrag() (bool, error) {
 		return false, err
 	}
 	return result, nil
+}
+
+func (e *Chromium) GetCookieManager() (*ICoreWebView2CookieManager, error) {
+	if e.webview == nil {
+		return nil, errors.New("webview not initialized")
+	}
+
+	// Check WebView2 version
+	if e.webview2RuntimeVersion == "" {
+		return nil, errors.New("WebView2 runtime version not available")
+	}
+
+	// Get ICoreWebView2_2 interface
+	webview2, err := e.webview.QueryInterface2()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ICoreWebView2_2: %w\nThis functionality requires WebView2 Runtime version 89.0.721.0 or later. Current version: %s", err, e.webview2RuntimeVersion)
+	}
+	defer webview2.Release()
+
+	// Get cookie manager
+	cookieManager, err := webview2.GetCookieManager()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cookie manager: %w", err)
+	}
+
+	// Note: The caller is responsible for calling Release() on the returned cookieManager
+	return cookieManager, nil
 }
