@@ -40,6 +40,7 @@
 <script>
 
 import { AddTCPClient, UpdateTCPClient } from "../../wailsjs/go/control/FuncTcpClient";
+import { ShowWarningDialog } from '../../wailsjs/go/main/App'
 
 export default {
   name: 'AddTcpClientModal',
@@ -156,6 +157,7 @@ export default {
         this.$emit('refresh-list')
       } catch(err) {
         window.runtime.LogError(this.editMode ? '更新出错: ' : '保存出错: ' + err)
+        await ShowWarningDialog(this.editMode ? '更新出错: ' : '保存出错: ' + err)
       }
     },
 
