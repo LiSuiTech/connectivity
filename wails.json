@@ -1,0 +1,22 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "网络调试工具",
+  "outputfilename": "网络调试工具",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "lixiaolong",
+    "email": "m17629294728@163.com"
+  },
+  "windows": {
+    "icon": "resources/icon.png" 
+  },
+  "macos": {
+    "icon": "resources/icon.png" 
+  },
+  "linux": {
+    "icon": "resources/icon.png"
+  }
+}
