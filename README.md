@@ -18,7 +18,7 @@
 1. 克隆项目到本地：
    ```bash
    git clone https://github.com/YouEvanLi/connectivity.git
-   cd <repository-directory>
+   cd connectivity
    ```
 
 2. 安装前端依赖：
