@@ -42,6 +42,15 @@ jobs:
       run: |
         go install github.com/wailsapp/wails/v2/cmd/wails@latest
         wails doctor  # 确保项目没有问题
+    # 修复 esbuild 二进制文件的问题，删除旧的 node_modules 并重新安装依赖
+    - name: Clean up npm cache and node_modules
+      run: |
+        cd frontend
+        npm cache clean --force
+        rm -rf node_modules
+        rm  package-lock.json  # 删除 package-lock.json 以确保清理干净
+        npm install  # 重新安装依赖
+        cd ..
 
     - name: Build Wails application for Ubuntu
       if: matrix.os == 'ubuntu-latest'
