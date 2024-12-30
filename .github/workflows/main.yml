@@ -46,17 +46,17 @@ jobs:
     - name: Build Wails application for Ubuntu
       if: matrix.os == 'ubuntu-latest'
       run: |
-        wails build --os=linux --arch=amd64
+        GOOS=linux GOARCH=amd64 wails build
 
     - name: Build Wails application for Windows
       if: matrix.os == 'windows-latest'
       run: |
-        wails build --os=windows --arch=amd64
+        GOOS=windows GOARCH=amd64 wails build
 
     - name: Build Wails application for macOS
       if: matrix.os == 'macos-latest'
       run: |
-        wails build --os=darwin --arch=amd64
+        GOOS=darwin GOARCH=amd64 wails build
 
     - name: Upload Build Artifacts
       if: success()
