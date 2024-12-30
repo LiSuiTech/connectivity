@@ -43,7 +43,7 @@ jobs:
         go install github.com/wailsapp/wails/v2/cmd/wails@latest
         wails doctor  # 确保项目没有问题
     # 安装缺失的依赖库
-    - name: Install WebKitGTK dependencies on Ubuntu
+    - name: Install GTK and Webkit dependencies on Ubuntu
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
@@ -52,10 +52,14 @@ jobs:
           libgtk-3-dev \
           libgirepository1.0-dev \
           libglib2.0-dev
-        # 添加 WebKitGTK 的 PPA 并安装依赖
-        sudo add-apt-repository ppa:webkitgtk-team/ppa -y
-        sudo apt-get update
+        # 不再使用 PPA，直接安装 WebKitGTK（如果已包含）
         sudo apt-get install -y libwebkit2gtk-4.0-dev
+    - name: Install Flatpak and WebKitGTK
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y flatpak
+        flatpak install flathub org.webkitgtk.WebKitGTK
     # 修复 esbuild 二进制文件的问题，删除旧的 node_modules 并重新安装依赖
     - name: Clean up npm cache and node_modules
       run: |
