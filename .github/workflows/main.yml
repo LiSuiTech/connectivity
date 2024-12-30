@@ -11,6 +11,7 @@ on:
 jobs:
   build:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30  # 设置最大超时时间
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]  # 设置支持的操作系统
