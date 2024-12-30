@@ -46,9 +46,6 @@ jobs:
     - name: Clean up npm cache and node_modules
       run: |
         cd frontend
-        npm cache clean --force
-        rm -rf node_modules
-        rm  package-lock.json  # 删除 package-lock.json 以确保清理干净
         npm install  # 重新安装依赖
         cd ..
 
