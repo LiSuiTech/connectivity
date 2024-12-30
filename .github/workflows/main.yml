@@ -1,0 +1,53 @@
+name: Wails Cross-Platform Build
+
+on:
+  push:
+    branches:
+      - main  # 或者其他你希望触发构建的分支
+  pull_request:
+    branches:
+      - main  # 或者其他你希望触发构建的分支
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]  # 设置支持的操作系统
+        go-version: [1.19, 1.20]  # 配置 Go 版本
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: ${{ matrix.go-version }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/*.go') }}
+        restore-keys: |
+          ${{ runner.os }}-go-${{ matrix.go-version }}-
+          ${{ runner.os }}-go-
+    
+    - name: Install Wails dependencies
+      run: |
+        go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        wails doctor  # 确保项目没有问题
+
+    - name: Build Wails application
+      run: |
+        wails build --platforms ${{ matrix.os }}
+
+    - name: Upload Build Artifacts
+      if: success()
+      uses: actions/upload-artifact@v3
+      with:
+        name: wails-build-${{ matrix.os }}
+        path: dist/
